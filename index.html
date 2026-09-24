@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local File Storage (IndexedDB)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 30px auto;
+      padding: 0 20px;
+      color: #333;
+    }
+    .container {
+      border: 1px solid #ccc;
+      padding: 20px;
+      border-radius: 8px;
+      background-color: #f9f9f9;
+    }
+    input[type="file"] {
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .file-list {
+      margin-top: 20px;
+      list-style-type: none;
+      padding: 0;
+    }
+    .file-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      background: #fff;
+      margin-bottom: 5px;
+      border-radius: 4px;
+    }
+    .delete-btn {
+      background-color: #dc3545;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+    .delete-btn:hover {
+      background-color: #c82333;
+    }
+    .message {
+      margin-top: 10px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>Browser Local File Storage</h2>
+  <input type="file" id="fileInput">
+  <br>
+  <button onclick="uploadFile()">Save File</button>
+  <div id="statusMessage" class="message"></div>
+
+  <h3>Stored Files</h3>
+  <ul id="fileList" class="file-list"></ul>
+</div>
+
+<script>
+  let db;
+  const request = indexedDB.open("FileStorageDB", 1);
+
+  request.onupgradeneeded = function(event) {
+    db = event.target.result;
+    if (!db.objectStoreNames.contains("files")) {
+      db.createObjectStore("files", { keyPath: "id", autoIncrement: true });
+    }
+  };
+
+  request.onsuccess = function(event) {
+    db = event.target.result;
+    loadStoredFiles();
+  };
+
+  request.onerror = function(event) {
+    console.error("IndexedDB error:", event.target.errorCode);
+  };
+
+  function uploadFile() {
+    const fileInput = document.getElementById("fileInput");
+    const statusMsg = document.getElementById("statusMessage");
+
+    if (!fileInput.files.length) {
+      statusMsg.innerText = "Please select a file first.";
+      statusMsg.style.color = "red";
+      return;
+    }
+
+    const file = fileInput.files[0];
+    const maxSizeInBytes = 1 * 1024 * 1024; // 1 MB limit check
+
+    if (file.size > maxSizeInBytes) {
+      statusMsg.innerText = "Error: File size exceeds 1 MB limit.";
+      statusMsg.style.color = "red";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const fileData = {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        data: e.target.result
+      };
+
+      const transaction = db.transaction(["files"], "readwrite");
+      const store = transaction.objectStore("files");
+      const addRequest = store.add(fileData);
+
+      addRequest.onsuccess = function() {
+        statusMsg.innerText = "File stored successfully!";
+        statusMsg.style.color = "green";
+        fileInput.value = "";
+        loadStoredFiles();
+      };
+
+      addRequest.onerror = function() {
+        statusMsg.innerText = "Failed to store file.";
+        statusMsg.style.color = "red";
+      };
+    };
+
+    reader.readAsArrayBuffer(file);
+  }
+
+  function loadStoredFiles() {
+    const fileList = document.getElementById("fileList");
+    fileList.innerHTML = "";
+
+    const transaction = db.transaction(["files"], "readonly");
+    const store = transaction.objectStore("files");
+    const cursorRequest = store.openCursor();
+
+    cursorRequest.onsuccess = function(event) {
+      const cursor = event.target.result;
+      if (cursor) {
+        const file = cursor.value;
+        const li = document.createElement("li");
+        li.className = "file-item";
+
+        const fileBlob = new Blob([file.data], { type: file.type });
+        const downloadUrl = URL.createObjectURL(fileBlob);
+
+        li.innerHTML = `
+          <div>
+            <strong><a href="${downloadUrl}" download="${file.name}">${file.name}</a></strong> 
+            <small>(${(file.size / 1024).toFixed(1)} KB)</small>
+          </div>
+          <button class="delete-btn" onclick="deleteFile(${cursor.key})">Delete</button>
+        `;
+        fileList.appendChild(li);
+        cursor.continue();
+      }
+    };
+  }
+
+  function deleteFile(id) {
+    const transaction = db.transaction(["files"], "readwrite");
+    const store = transaction.objectStore("files");
+    const deleteRequest = store.delete(id);
+
+    deleteRequest.onsuccess = function() {
+      loadStoredFiles();
+    };
+  }
+</script>
+
+</body>
+</html>
